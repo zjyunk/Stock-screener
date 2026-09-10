@@ -26,6 +26,20 @@ header .meta{font-family:var(--mono);font-size:12px;color:var(--ink-faint)}
 header .meta b{color:var(--ink-soft);font-weight:500}
 
 aside{border-right:1px solid var(--rule);background:var(--surface);overflow-y:auto;padding:10px 0}
+.search{padding:0 12px 8px;position:relative}
+.search input{width:100%;padding:7px 10px;border:1px solid var(--rule);border-radius:4px;
+  font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--ink)}
+.search input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
+.search .hint{font-size:11px;color:var(--ink-faint);margin:4px 2px 0}
+.results{position:absolute;left:12px;right:12px;top:100%;z-index:20;background:var(--surface);
+  border:1px solid var(--rule-strong);border-radius:4px;box-shadow:0 8px 24px -12px rgba(0,0,0,.35);
+  max-height:300px;overflow-y:auto;display:none}
+.results.on{display:block}
+.results div{padding:7px 12px;cursor:pointer;font-size:13px;display:flex;gap:10px;align-items:baseline}
+.results div:hover,.results div.hl{background:var(--accent-wash)}
+.results .code{font-family:var(--mono);font-weight:600}
+.results .mk{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);margin-left:auto}
+.results .none{color:var(--ink-faint);cursor:default}
 .filters{padding:0 12px 8px;display:flex;gap:6px;font-size:12px}
 .filters button{border:1px solid var(--rule);background:transparent;padding:3px 9px;border-radius:3px;
   font-family:var(--mono);font-size:11px;color:var(--ink-soft);cursor:pointer}
@@ -86,6 +100,11 @@ main{overflow-y:auto;padding:14px 20px 40px}
   </header>
 
   <aside>
+    <div class="search">
+      <input id="q" type="text" placeholder="輸入代號或名稱查任一檔" autocomplete="off" spellcheck="false">
+      <div class="hint" id="qhint"></div>
+      <div class="results" id="qres"></div>
+    </div>
     <div class="filters">
       <button data-f="all" class="on">全部</button>
       <button data-f="順勢">順勢</button>
@@ -120,6 +139,61 @@ const modeClass = m => m==='兩者' ? 'both' : m==='反轉' ? 'rev' : m==='順�
 const modeLabel = {trend:'順勢', reversal:'打底反轉', both:'順勢 + 打底反轉'}[PAYLOAD.params.SCREEN_MODE] || PAYLOAD.params.SCREEN_MODE;
 document.getElementById('mode-label').textContent = modeLabel;
 document.getElementById('count').textContent = PAYLOAD.stocks.filter(s=>s.selected).length;
+
+const SERVER = PAYLOAD.mode === 'server';
+const STOCKS = new Map(PAYLOAD.stocks.map(x => [x.stock_id, x]));
+
+async function getStock(id){
+  if(STOCKS.has(id)) return STOCKS.get(id);
+  if(!SERVER) return null;
+  const r = await fetch('/api/stock/' + encodeURIComponent(id));
+  if(!r.ok) return null;
+  const s = await r.json();
+  if(s.error) return null;
+  STOCKS.set(id, s);
+  return s;
+}
+
+// ---- 搜尋
+const qEl = document.getElementById('q'), qRes = document.getElementById('qres'), qHint = document.getElementById('qhint');
+qHint.textContent = SERVER ? '伺服器模式：1,900 檔都能查' : '離線報表：只能查入選的個股，要查其他請跑 python run_server.py';
+let qTimer = null, qItems = [], qIdx = -1;
+function renderResults(items){
+  qItems = items; qIdx = -1;
+  if(!items.length){ qRes.innerHTML = '<div class="none">找不到</div>'; qRes.classList.add('on'); return; }
+  qRes.innerHTML = items.map((x,i) => `<div data-i="${i}"><span class="code">${x.stock_id}</span><span>${x.name||''}</span><span class="mk">${x.market||''}</span></div>`).join('');
+  qRes.classList.add('on');
+  qRes.querySelectorAll('div[data-i]').forEach(el => el.addEventListener('mousedown', e => { e.preventDefault(); pick(+el.dataset.i); }));
+}
+function pick(i){
+  const x = qItems[i]; if(!x) return;
+  qRes.classList.remove('on'); qEl.value = ''; qEl.blur();
+  history.replaceState(null, '', '#' + x.stock_id);
+  show(x.stock_id);
+}
+async function doSearch(q){
+  q = q.trim();
+  if(!q){ qRes.classList.remove('on'); return; }
+  let items;
+  if(SERVER){
+    const r = await fetch('/api/search?q=' + encodeURIComponent(q));
+    items = r.ok ? await r.json() : [];
+  } else {
+    const lq = q.toLowerCase();
+    items = PAYLOAD.stocks.filter(x => x.stock_id.startsWith(q) || (x.name||'').includes(q)).map(x => ({stock_id:x.stock_id, name:x.name, market:x.market}));
+  }
+  renderResults(items.slice(0, 12));
+}
+qEl.addEventListener('input', () => { clearTimeout(qTimer); qTimer = setTimeout(() => doSearch(qEl.value), 150); });
+qEl.addEventListener('keydown', e => {
+  if(!qRes.classList.contains('on')) return;
+  if(e.key === 'ArrowDown'){ qIdx = Math.min(qIdx+1, qItems.length-1); e.preventDefault(); }
+  else if(e.key === 'ArrowUp'){ qIdx = Math.max(qIdx-1, 0); e.preventDefault(); }
+  else if(e.key === 'Enter'){ pick(qIdx >= 0 ? qIdx : 0); e.preventDefault(); return; }
+  else if(e.key === 'Escape'){ qRes.classList.remove('on'); return; }
+  qRes.querySelectorAll('div[data-i]').forEach((el,i) => el.classList.toggle('hl', i===qIdx));
+});
+qEl.addEventListener('blur', () => setTimeout(() => qRes.classList.remove('on'), 120));
 
 let filter = 'all';
 const listEl = document.getElementById('list');
@@ -176,11 +250,15 @@ function pane(container, title, height, left=false, logo=false){
   return { chart, legend, title, series:{}, byTime:new Map(), primary:null };
 }
 
-function show(id){
+async function show(id){
+  const main = document.getElementById('main');
+  const s = await getStock(id);
+  if(!s){
+    main.innerHTML = `<div class="empty">找不到 ${id} 的資料${SERVER ? '' : '（離線報表只含入選個股，要查其他請跑 python run_server.py）'}</div>`;
+    return;
+  }
   current = id;
   renderList();
-  const s = PAYLOAD.stocks.find(x => x.stock_id===id);
-  const main = document.getElementById('main');
   charts.forEach(p => p.chart.remove()); charts = [];
   main.innerHTML = '';
 
@@ -189,9 +267,9 @@ function show(id){
   const head = document.createElement('div'); head.className = 'stock-head';
   head.innerHTML = `
     <h2><span class="code">${s.stock_id}</span>${s.name||''}</h2>
-    <span class="kv">${s.market} · ${s.industry||''} · 成交值排名 <b>#${s.rank}</b>（${s.days_in_rank}/${PAYLOAD.params.UNIVERSE_LOOKBACK} 日在榜）</span>
+    <span class="kv">${s.market||''} · ${s.industry||''} · ${s.rank!=null ? `成交值排名 <b>#${s.rank}</b>（${s.days_in_rank}/${PAYLOAD.params.UNIVERSE_LOOKBACK} 日在榜）` : '<b>未進入今日母體</b>'}</span>
     <span class="kv">收盤 <b>${fmt(last.raw_close)}</b> <span class="${chg>=0?'up':'down'}">${chg>=0?'+':''}${fmt(chg)}%</span></span>
-    <span class="kv">型態 <b>${s.mode||'—'}</b></span>
+    <span class="kv">型態 <b>${s.mode||'—'}</b>${s.selected ? ' <span class="up">入選</span>' : ''}</span>
     <span class="kv">外資5日 <b>${fmtInt((s.foreign_sum||0)/1000)}</b> 張 ${s.foreign_pattern||''}</span>
     <span class="kv">外資持股 <b>${fmt(s.hold_pct)}%</b>${s.hold_chg_pp!=null?` (${s.hold_chg_pp>=0?'+':''}${fmt(s.hold_chg_pp)}pp)`:''}</span>`;
   main.appendChild(head);
@@ -328,8 +406,8 @@ function sync(list){
         if(v!==undefined && o.primary) o.chart.setCrosshairPosition(v, param.time, o.primary);
         else o.chart.clearCrosshairPosition();
       });
-      const s = PAYLOAD.stocks.find(x => x.stock_id===current);
-      list.forEach(o => updateLegend(o, key, s));
+      const s = STOCKS.get(current);
+      if(s) list.forEach(o => updateLegend(o, key, s));
     });
   });
 }
@@ -370,11 +448,11 @@ function updateLegend(p, key, s){
 renderList();
 // 網址帶 #代號 就直接開那一檔（例如 latest.html#2327），方便分享
 const wanted = location.hash.replace('#','');
-const first = PAYLOAD.stocks.find(x => x.stock_id===wanted) || PAYLOAD.stocks[0];
-if(first) show(first.stock_id);
+if(wanted) show(wanted);
+else if(PAYLOAD.stocks.length) show(PAYLOAD.stocks[0].stock_id);
 window.addEventListener('hashchange', () => {
   const id = location.hash.replace('#','');
-  if(PAYLOAD.stocks.some(x => x.stock_id===id)) show(id);
+  if(id) show(id);
 });
 document.getElementById('funnel').innerHTML = PAYLOAD.funnel ? PAYLOAD.funnel.map(f=>`${f[0]} <b>${f[1]}</b>`).join(' · ') : '';
 </script>

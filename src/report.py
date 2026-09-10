@@ -149,3 +149,73 @@ def build_payload(con, result, trade_date, params, stock_ids=None):
 
 def to_json(payload):
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+# ------------------------------------------------------------------ 單檔查詢（伺服器用）
+def stock_payload(con, stock_id, trade_date, screen_row=None):
+    """任一檔個股的完整資料，不依賴選股結果。
+
+    screen_row 是 screener.run() 那一列（若該股有進母體），有就帶排名與型態，
+    沒有就只帶基本資料。給 run_server.py 的 /api/stock/<代號> 用。
+    """
+    series = stock_series(con, stock_id, trade_date)
+    if not series:
+        return None
+    master = con.execute(
+        "SELECT name, market, industry FROM security_master WHERE stock_id = ?", [stock_id]
+    ).fetchone()
+    name, market, industry = master if master else (None, None, None)
+
+    def col(key, default=None):
+        if screen_row is None:
+            return default
+        return _clean(screen_row.get(key, default))
+
+    # 法人近 5 日型態：沒進母體的股票 screener 沒算，這裡自己算
+    tail = series[-5:]
+    pattern = "".join(
+        "+" if (r.get("foreign_net") or 0) > 0 else "-" if (r.get("foreign_net") or 0) < 0 else "·"
+        for r in tail
+    )
+    foreign_sum = sum(r.get("foreign_net") or 0 for r in tail)
+    holds = [r["hold_pct"] for r in series if r.get("hold_pct") is not None]
+
+    return {
+        "stock_id": stock_id,
+        "name": _clean(name),
+        "market": _clean(market),
+        "industry": _clean(industry),
+        "mode": col("mode", "") or "",
+        "selected": bool(col("selected", False)),
+        "rank": col("rank_ma5"),
+        "days_in_rank": col("days_in_rank"),
+        "close": series[-1]["close"],
+        "foreign_sum": foreign_sum,
+        "foreign_pattern": pattern,
+        "hold_pct": holds[-1] if holds else None,
+        "hold_chg_pp": (holds[-1] - holds[-6]) if len(holds) >= 6 else None,
+        "series": series,
+        "chips": chip_series(con, stock_id, trade_date),
+        "levels": levels.find_levels(series),
+        "trend": {
+            "support": levels.trend_line(series, "support"),
+            "resistance": levels.trend_line(series, "resistance"),
+        },
+    }
+
+
+def search_stocks(con, query, limit=12):
+    """代號前綴或名稱包含。回傳 list[dict(stock_id, name, market)]。"""
+    q = (query or "").strip()
+    if not q:
+        return []
+    rows = con.execute(
+        """
+        SELECT stock_id, name, market FROM security_master
+        WHERE stock_id LIKE ? OR name LIKE ?
+        ORDER BY CASE WHEN stock_id = ? THEN 0 WHEN stock_id LIKE ? THEN 1 ELSE 2 END, stock_id
+        LIMIT ?
+        """,
+        [f"{q}%", f"%{q}%", q, f"{q}%", limit],
+    ).fetchall()
+    return [{"stock_id": r[0], "name": r[1], "market": r[2]} for r in rows]
