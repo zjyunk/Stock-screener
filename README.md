@@ -5,7 +5,7 @@
 
 規格書：https://claude.ai/code/artifact/46d0a280-bd61-46a7-aab8-a4c9ed41d737
 
-目前完成 **Phase 0（資料管線）**、**Phase 1（指標與選股 CLI）**、**Phase 2（回測驗證）**。
+目前完成 **Phase 0（資料管線）**、**Phase 1（指標與選股 CLI）**、**Phase 2（回測驗證）**、**Phase 3（個股頁報表）**。
 
 > ## Phase 2 結論：通過驗證
 >
@@ -66,11 +66,11 @@ pip install -r requirements.txt
 
 | 時機 | Git Bash | PowerShell / 排程 | 做什麼 |
 |---|---|---|---|
-| 交易日 15:30 後 | `./daily.sh` | `.\daily.bat` | ①行情、法人、外資持股、融資融券 ②集保 ③選股清單 |
+| 交易日 15:30 後 | `./daily.sh` | `.\daily.bat` | ①行情、法人、外資持股、融資融券 ②集保 ③選股清單 ④個股頁報表 |
 | 需要時 | `python run_daily.py --tdcc` | `.\weekly_tdcc.bat` | 只抓集保（手動補用） |
 
 兩支腳本內容相同，都會自己 `cd` 到專案目錄並用 venv 的直譯器。
-選股清單另存一份到 `logs/screener_latest.txt`。
+選股清單另存一份到 `logs/screener_latest.txt`，個股頁報表在 `report/latest.html`（用瀏覽器開）。
 
 ⚠ **Git Bash 要加 `./`**：打 `daily.bat` 或 `daily.sh` 會說找不到，
 因為 bash 刻意不在目前目錄找可執行檔。`./daily.bat` 也能跑（會轉給 cmd）。
@@ -106,6 +106,21 @@ schtasks /run   /tn "台股-每日更新"
 排程漏跑（電腦關機）不要緊：`run_daily.py` 可以補指定日期，
 `python run_daily.py --date 2026-09-08`；行情資料交易所會一直留著。
 集保只要在下週六之前有跑到任何一天就補得回來。
+
+### 個股頁報表
+
+`report/latest.html` 是離線的單一 HTML，雙擊用瀏覽器開。左側是入選清單（可依順勢／反轉篩選），
+點一檔右側顯示六格連動圖：**K 線 + MA20、成交量、MACD、KD、外資／投信買賣超、籌碼**
+（外資持股 %、大戶 %、散戶 %、融資餘額）。滾輪縮放、拖曳平移，六格同步；十字線會顯示各格當日數值。
+
+```bash
+python run_report.py                       # 最新交易日
+python run_report.py --stocks 2330,2317    # 額外加幾檔沒入選的來看
+python run_report.py --open                # 產生後直接開瀏覽器
+```
+
+圖表函式庫（lightweight-charts）已內嵌在 `src/vendor/`，離線可開。K 線與指標用還原價；
+紅漲綠跌為台股慣例。
 
 ### 怎麼讀選股清單
 
@@ -179,6 +194,9 @@ run_backfill.py        3 年回補
 run_daily.py           每日增量 / 週六集保
 run_screener.py        選股 CLI
 run_backtest.py        回測 CLI
+run_report.py          個股頁報表（離線 HTML）
+src/report.py          報表資料組裝
+src/report_template.html  報表頁面（六格連動圖）
 tests/test_indicators.py    指標對逐日迴圈參考實作的比對
 tests/test_consistency.py   screener 與 backtest 兩套實作的一致性比對
 ```

@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>選股報表 __TRADE_DATE__</title>
+<style>
+:root{
+  --bg:#EFEEE9; --surface:#FAF9F5; --surface-2:#E7E5DD;
+  --ink:#1A1D1B; --ink-soft:#5E635C; --ink-faint:#8A8F86;
+  --rule:#D5D3C8; --rule-strong:#B9B7AA; --grid:#ECEAE3;
+  --accent:#1D4E5C; --accent-wash:#DCE8EA;
+  --up:#C0392B; --down:#28755A; --warn:#9A6B0C;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  --sans:"Noto Sans TC","Microsoft JhengHei","Helvetica Neue",Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5}
+
+.app{display:grid;grid-template-columns:280px minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);height:100vh}
+header{grid-column:1/-1;padding:12px 20px;border-bottom:1px solid var(--rule-strong);background:var(--surface);
+  display:flex;align-items:baseline;gap:18px;flex-wrap:wrap}
+header h1{margin:0;font-size:17px;font-weight:700}
+header .meta{font-family:var(--mono);font-size:12px;color:var(--ink-faint)}
+header .meta b{color:var(--ink-soft);font-weight:500}
+
+aside{border-right:1px solid var(--rule);background:var(--surface);overflow-y:auto;padding:10px 0}
+.filters{padding:0 12px 8px;display:flex;gap:6px;font-size:12px}
+.filters button{border:1px solid var(--rule);background:transparent;padding:3px 9px;border-radius:3px;
+  font-family:var(--mono);font-size:11px;color:var(--ink-soft);cursor:pointer}
+.filters button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.item{display:grid;grid-template-columns:auto 1fr auto;gap:8px 10px;padding:8px 14px;cursor:pointer;
+  border-left:3px solid transparent;align-items:center}
+.item:hover{background:var(--surface-2)}
+.item.on{background:var(--accent-wash);border-left-color:var(--accent)}
+.item .code{font-family:var(--mono);font-size:13px;font-weight:600}
+.item .name{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .tag{font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:2px;background:var(--surface-2);color:var(--ink-soft)}
+.item .tag.trend{background:#DCE8EA;color:#1D4E5C}
+.item .tag.rev{background:#F2E7CC;color:#9A6B0C}
+.item .tag.both{background:#E4DCEA;color:#5B3D7A}
+.item .sub{grid-column:1/-1;font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+.item .sub b{color:var(--ink-soft);font-weight:500}
+
+main{overflow-y:auto;padding:14px 20px 40px}
+.stock-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:8px}
+.stock-head h2{margin:0;font-size:20px}
+.stock-head h2 .code{font-family:var(--mono);color:var(--ink-faint);font-weight:500;margin-right:8px}
+.stock-head .kv{font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
+.stock-head .kv b{color:var(--ink);font-weight:600}
+.up{color:var(--up)} .down{color:var(--down)}
+
+.pane{position:relative;background:var(--surface);border:1px solid var(--rule);border-radius:5px;margin-bottom:6px}
+.pane .legend{position:absolute;top:6px;left:10px;z-index:5;font-family:var(--mono);font-size:11px;
+  color:var(--ink-soft);pointer-events:none;display:flex;gap:12px;flex-wrap:wrap;
+  background:rgba(250,249,245,.85);padding:2px 6px;border-radius:3px}
+.pane .legend b{font-weight:600;color:var(--ink)}
+.pane .legend .t{color:var(--ink-faint);margin-right:2px}
+.chart{width:100%}
+
+.note{font-size:12px;color:var(--ink-faint);margin:10px 0 0;line-height:1.7}
+.empty{padding:60px 20px;text-align:center;color:var(--ink-faint)}
+@media(max-width:800px){.app{grid-template-columns:1fr;grid-template-rows:auto auto minmax(0,1fr)}
+  aside{max-height:220px;border-right:none;border-bottom:1px solid var(--rule)}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>台股選股報表</h1>
+    <span class="meta"><b>交易日</b> __TRADE_DATE__</span>
+    <span class="meta"><b>入選</b> <span id="count"></span> 檔</span>
+    <span class="meta"><b>模式</b> <span id="mode-label"></span></span>
+    <span class="meta" id="funnel"></span>
+  </header>
+
+  <aside>
+    <div class="filters">
+      <button data-f="all" class="on">全部</button>
+      <button data-f="順勢">順勢</button>
+      <button data-f="反轉">反轉</button>
+    </div>
+    <div id="list"></div>
+  </aside>
+
+  <main id="main"><div class="empty">左側點選個股</div></main>
+</div>
+
+<script>__CHARTLIB__</script>
+<script>
+const PAYLOAD = __PAYLOAD__;
+const LWC = LightweightCharts;
+
+const C = {
+  surface:'#FAF9F5', grid:'#ECEAE3', rule:'#D5D3C8', ink:'#1A1D1B', inkSoft:'#5E635C', inkFaint:'#8A8F86',
+  up:'#C0392B', down:'#28755A', accent:'#1D4E5C', ma:'#9A6B0C',
+  dif:'#1D4E5C', sig:'#C0392B', k:'#1D4E5C', d:'#C0392B',
+  hold:'#1D4E5C', whale:'#C0392B', retail:'#28755A', margin:'#9A6B0C', trust:'#5B3D7A',
+};
+
+// ---------------------------------------------------------- 工具
+const fmt = (v, d=2) => (v==null || Number.isNaN(v)) ? '-' : Number(v).toLocaleString('zh-TW',{minimumFractionDigits:d,maximumFractionDigits:d});
+const fmtInt = v => (v==null) ? '-' : Math.round(v).toLocaleString('zh-TW');
+const tkey = t => (typeof t === 'string') ? t
+  : (t && t.year) ? `${t.year}-${String(t.month).padStart(2,'0')}-${String(t.day).padStart(2,'0')}` : null;
+const modeClass = m => m==='兩者' ? 'both' : m==='反轉' ? 'rev' : m==='順勢' ? 'trend' : '';
+
+// ---------------------------------------------------------- 側欄
+const modeLabel = {trend:'順勢', reversal:'打底反轉', both:'順勢 + 打底反轉'}[PAYLOAD.params.SCREEN_MODE] || PAYLOAD.params.SCREEN_MODE;
+document.getElementById('mode-label').textContent = modeLabel;
+document.getElementById('count').textContent = PAYLOAD.stocks.filter(s=>s.selected).length;
+
+let filter = 'all';
+const listEl = document.getElementById('list');
+function renderList(){
+  listEl.innerHTML = '';
+  PAYLOAD.stocks
+    .filter(s => filter==='all' || s.mode===filter || s.mode==='兩者')
+    .forEach(s => {
+      const el = document.createElement('div');
+      el.className = 'item' + (s.stock_id===current ? ' on' : '');
+      el.dataset.id = s.stock_id;
+      const chg = s.series.length>1 ? (s.series.at(-1).close / s.series.at(-2).close - 1)*100 : null;
+      el.innerHTML = `
+        <span class="code">${s.stock_id}</span>
+        <span class="name">${s.name||''}</span>
+        <span class="tag ${modeClass(s.mode)}">${s.mode||'—'}</span>
+        <span class="sub">#${s.rank} · ${s.market} · 收 <b>${fmt(s.close)}</b>
+          <span class="${chg>=0?'up':'down'}">${chg==null?'':(chg>=0?'+':'')+fmt(chg,1)+'%'}</span>
+          · 外資 <b>${s.foreign_pattern||''}</b></span>`;
+      el.addEventListener('click', () => show(s.stock_id));
+      listEl.appendChild(el);
+    });
+}
+document.querySelectorAll('.filters button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.filters button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); filter = b.dataset.f; renderList();
+}));
+
+// ---------------------------------------------------------- 圖表
+let current = null;
+let charts = [];
+
+function mkChart(el, height, left=false, logo=false){
+  return LWC.createChart(el, {
+    height, autoSize:true,
+    layout:{ background:{type:'solid', color:C.surface}, textColor:C.inkSoft, fontFamily:'IBM Plex Mono, Consolas, monospace', fontSize:11, attributionLogo:logo },
+    grid:{ vertLines:{color:C.grid}, horzLines:{color:C.grid} },
+    // 所有窗格的左右軸寬度固定成一樣，畫布才會等寬、同一天才會落在同一個 x。
+    // 沒資料的左軸也留著（空白），否則第六格有左軸、其他格沒有，會整體偏移。
+    rightPriceScale:{ borderColor:C.rule, minimumWidth:64, scaleMargins:{top:0.12,bottom:0.08} },
+    leftPriceScale:{ visible:true, borderColor:C.rule, minimumWidth:52, scaleMargins:{top:0.12,bottom:0.08},
+                     ticksVisible:left, textColor: left ? C.inkSoft : 'transparent' },
+    timeScale:{ borderColor:C.rule, rightOffset:4, barSpacing:7, minBarSpacing:3 },
+    crosshair:{ mode:LWC.CrosshairMode.Normal, vertLine:{labelBackgroundColor:C.accent}, horzLine:{labelBackgroundColor:C.accent} },
+  });
+}
+
+function pane(container, title, height, left=false, logo=false){
+  const wrap = document.createElement('div'); wrap.className = 'pane';
+  const legend = document.createElement('div'); legend.className = 'legend';
+  const box = document.createElement('div'); box.className = 'chart';
+  wrap.appendChild(legend); wrap.appendChild(box); container.appendChild(wrap);
+  const chart = mkChart(box, height, left, logo);
+  return { chart, legend, title, series:{}, byTime:new Map(), primary:null };
+}
+
+function show(id){
+  current = id;
+  renderList();
+  const s = PAYLOAD.stocks.find(x => x.stock_id===id);
+  const main = document.getElementById('main');
+  charts.forEach(p => p.chart.remove()); charts = [];
+  main.innerHTML = '';
+
+  const last = s.series.at(-1), prev = s.series.at(-2) || last;
+  const chg = (last.close/prev.close - 1)*100;
+  const head = document.createElement('div'); head.className = 'stock-head';
+  head.innerHTML = `
+    <h2><span class="code">${s.stock_id}</span>${s.name||''}</h2>
+    <span class="kv">${s.market} · ${s.industry||''} · 成交值排名 <b>#${s.rank}</b>（${s.days_in_rank}/${PAYLOAD.params.UNIVERSE_LOOKBACK} 日在榜）</span>
+    <span class="kv">收盤 <b>${fmt(last.raw_close)}</b> <span class="${chg>=0?'up':'down'}">${chg>=0?'+':''}${fmt(chg)}%</span></span>
+    <span class="kv">型態 <b>${s.mode||'—'}</b></span>
+    <span class="kv">外資5日 <b>${fmtInt((s.foreign_sum||0)/1000)}</b> 張 ${s.foreign_pattern||''}</span>
+    <span class="kv">外資持股 <b>${fmt(s.hold_pct)}%</b>${s.hold_chg_pp!=null?` (${s.hold_chg_pp>=0?'+':''}${fmt(s.hold_chg_pp)}pp)`:''}</span>`;
+  main.appendChild(head);
+
+  const S = s.series.filter(r => r.close!=null);
+  const T = r => r.trade_date;
+  // 每個交易日都要佔一格：各窗格的連動是用「第幾根」對齊的，
+  // 某格少了幾天資料就會整個錯位。沒值的日子給 {time} 空白點。
+  const W  = f => S.map(r => { const v=f(r); return (v==null||Number.isNaN(v)) ? {time:T(r)} : {time:T(r), value:v}; });
+  const WH = (f, col) => S.map(r => { const v=f(r); return (v==null||Number.isNaN(v)) ? {time:T(r)} : {time:T(r), value:v, color:col(r)}; });
+
+  // ---- 1 K 線 + MA
+  const p1 = pane(main, 'K線', 300, false, true);
+  const candle = p1.chart.addCandlestickSeries({ upColor:C.up, downColor:C.down, borderUpColor:C.up, borderDownColor:C.down, wickUpColor:C.up, wickDownColor:C.down });
+  candle.setData(S.map(r => ({time:T(r), open:r.open, high:r.high, low:r.low, close:r.close})));
+  const ma = p1.chart.addLineSeries({ color:C.ma, lineWidth:1.5, priceLineVisible:false, lastValueVisible:false });
+  ma.setData(W(r=>r.ma));
+  p1.primary = candle; p1.series = {candle, ma};
+  S.forEach(r => p1.byTime.set(T(r), r.close));
+
+  // ---- 2 成交量
+  const p2 = pane(main, '成交量', 80);
+  const vol = p2.chart.addHistogramSeries({ priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:false });
+  vol.setData(S.map(r => ({time:T(r), value:(r.volume||0)/1000, color:(r.close>=r.open)?C.up:C.down})));
+  p2.primary = vol; p2.series = {vol};
+  S.forEach(r => p2.byTime.set(T(r), (r.volume||0)/1000));
+
+  // ---- 3 MACD
+  const p3 = pane(main, 'MACD', 110);
+  const osc = p3.chart.addHistogramSeries({ priceLineVisible:false, lastValueVisible:false });
+  osc.setData(WH(r=>r.osc, r=>r.osc>=0?C.up:C.down));
+  const dif = p3.chart.addLineSeries({ color:C.dif, lineWidth:1.5, priceLineVisible:false, lastValueVisible:false });
+  dif.setData(W(r=>r.dif));
+  const sig = p3.chart.addLineSeries({ color:C.sig, lineWidth:1.5, priceLineVisible:false, lastValueVisible:false });
+  sig.setData(W(r=>r.macd));
+  dif.createPriceLine({ price:0, color:C.inkFaint, lineWidth:1, lineStyle:LWC.LineStyle.Dotted, axisLabelVisible:false });
+  p3.primary = dif; p3.series = {osc, dif, sig};
+  S.forEach(r => { if(r.dif!=null) p3.byTime.set(T(r), r.dif); });
+
+  // ---- 4 KD
+  const p4 = pane(main, 'KD', 110);
+  const kl = p4.chart.addLineSeries({ color:C.k, lineWidth:1.5, priceLineVisible:false, lastValueVisible:false });
+  kl.setData(W(r=>r.k));
+  const dl = p4.chart.addLineSeries({ color:C.d, lineWidth:1.5, priceLineVisible:false, lastValueVisible:false });
+  dl.setData(W(r=>r.d));
+  [20,80].forEach(v => kl.createPriceLine({ price:v, color:C.inkFaint, lineWidth:1, lineStyle:LWC.LineStyle.Dotted, axisLabelVisible:false }));
+  p4.primary = kl; p4.series = {kl, dl};
+  S.forEach(r => { if(r.k!=null) p4.byTime.set(T(r), r.k); });
+
+  // ---- 5 法人買賣超
+  const p5 = pane(main, '外資買賣超(張)', 90);
+  const fnet = p5.chart.addHistogramSeries({ priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:false });
+  fnet.setData(WH(r=>r.foreign_net==null?null:r.foreign_net/1000, r=>r.foreign_net>=0?C.up:C.down));
+  const tnet = p5.chart.addLineSeries({ color:C.trust, lineWidth:1, priceLineVisible:false, lastValueVisible:false, lineStyle:LWC.LineStyle.Dashed });
+  tnet.setData(W(r=>r.trust_net==null?null:r.trust_net/1000));
+  p5.primary = fnet; p5.series = {fnet, tnet};
+  S.forEach(r => { if(r.foreign_net!=null) p5.byTime.set(T(r), r.foreign_net/1000); });
+
+  // ---- 6 籌碼：左軸 = 各種持股 %，右軸 = 融資餘額(張)
+  const p6 = pane(main, '籌碼', 130, true);
+  const hold = p6.chart.addLineSeries({ color:C.hold, lineWidth:1.5, priceScaleId:'left', priceLineVisible:false, lastValueVisible:false });
+  hold.setData(W(r=>r.hold_pct));
+  const whale = p6.chart.addLineSeries({ color:C.whale, lineWidth:2, priceScaleId:'left', lineType:LWC.LineType.WithSteps, priceLineVisible:false, lastValueVisible:false });
+  const retail = p6.chart.addLineSeries({ color:C.retail, lineWidth:2, priceScaleId:'left', lineType:LWC.LineType.WithSteps, priceLineVisible:false, lastValueVisible:false });
+  const chips = (s.chips||[]).filter(c => c.avail_date>=S[0].trade_date);
+  whale.setData(chips.map(c => ({time:c.avail_date, value:c.whale_pct})));
+  retail.setData(chips.map(c => ({time:c.avail_date, value:c.retail_pct})));
+  const mg = p6.chart.addLineSeries({ color:C.margin, lineWidth:1.5, priceScaleId:'right', priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:false });
+  mg.setData(W(r=>r.margin_balance));
+  p6.primary = hold; p6.series = {hold, whale, retail, mg};
+  S.forEach(r => { if(r.hold_pct!=null) p6.byTime.set(T(r), r.hold_pct); });
+  p6.chips = chips;
+
+  charts = [p1,p2,p3,p4,p5,p6];
+  charts.forEach(p => p.chart.timeScale().fitContent());
+  sync(charts);
+  charts.forEach(p => updateLegend(p, null, s));
+
+  const note = document.createElement('p'); note.className='note';
+  note.innerHTML = `K 線／指標一律用還原價；成交量、法人買賣超、融資單位為張。集保大戶／散戶是週頻，只在可使用日（公布後的下一交易日）畫點，${chips.length} 週。<br>
+    紅漲綠跌為台股慣例。融資只列數字不做判斷（三年實證顯示它與後續報酬呈正相關，與慣用判讀相反）。`;
+  main.appendChild(note);
+}
+
+// ---------------------------------------------------------- 連動與圖例
+function sync(list){
+  list.forEach(p => {
+    p.chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+      if(!range) return;
+      list.forEach(o => { if(o!==p) o.chart.timeScale().setVisibleLogicalRange(range); });
+    });
+    p.chart.subscribeCrosshairMove(param => {
+      const key = tkey(param.time);
+      list.forEach(o => {
+        if(o===p) return;
+        if(!key){ o.chart.clearCrosshairPosition(); return; }
+        const v = o.byTime.get(key);
+        if(v!==undefined && o.primary) o.chart.setCrosshairPosition(v, param.time, o.primary);
+        else o.chart.clearCrosshairPosition();
+      });
+      const s = PAYLOAD.stocks.find(x => x.stock_id===current);
+      list.forEach(o => updateLegend(o, key, s));
+    });
+  });
+}
+
+function updateLegend(p, key, s){
+  let row = key ? s.series.find(r => r.trade_date===key) : s.series.at(-1);
+  if(!row){ return; }
+  // 靜止狀態下，今天的外資持股／融資可能還沒公布，退回最後一個有值的日子
+  if(!key && p.title==='籌碼'){
+    const lastHold = [...s.series].reverse().find(r => r.hold_pct!=null);
+    if(lastHold) row = lastHold;
+  }
+  const L = p.legend;
+  const t = `<span class="t">${row.trade_date}</span>`;
+  switch(p.title){
+    case 'K線': {
+      const c = row.close>=row.open ? 'up':'down';
+      L.innerHTML = `${t}<b>K線</b> 開 <b class="${c}">${fmt(row.open)}</b> 高 <b class="${c}">${fmt(row.high)}</b> 低 <b class="${c}">${fmt(row.low)}</b> 收 <b class="${c}">${fmt(row.close)}</b> <span style="color:${C.ma}">MA20 ${fmt(row.ma)}</span>`;
+      break; }
+    case '成交量':
+      L.innerHTML = `${t}<b>成交量</b> ${fmtInt((row.volume||0)/1000)} 張 · 成交值 ${fmt((row.turnover||0)/1e8,1)} 億`; break;
+    case 'MACD':
+      L.innerHTML = `${t}<b>MACD</b> <span style="color:${C.dif}">DIF ${fmt(row.dif)}</span> <span style="color:${C.sig}">訊號 ${fmt(row.macd)}</span> 柱 <b class="${row.osc>=0?'up':'down'}">${fmt(row.osc)}</b>`; break;
+    case 'KD':
+      L.innerHTML = `${t}<b>KD</b> <span style="color:${C.k}">K ${fmt(row.k,1)}</span> <span style="color:${C.d}">D ${fmt(row.d,1)}</span> ${row.k>row.d?'<span class="up">K>D</span>':'<span class="down">K<D</span>'}`; break;
+    case '外資買賣超(張)':
+      L.innerHTML = `${t}<b>法人</b> 外資 <b class="${(row.foreign_net||0)>=0?'up':'down'}">${fmtInt((row.foreign_net||0)/1000)}</b> <span style="color:${C.trust}">投信 ${fmtInt((row.trust_net||0)/1000)}</span>`; break;
+    case '籌碼': {
+      const chip = (p.chips||[]).filter(c => c.avail_date<= (key||row.trade_date)).at(-1);
+      L.innerHTML = `${t}<b>籌碼</b> <span style="color:${C.hold}">外資持股 ${fmt(row.hold_pct)}%</span>`
+        + (chip ? ` <span style="color:${C.whale}">大戶 ${fmt(chip.whale_pct)}%</span> <span style="color:${C.retail}">散戶 ${fmt(chip.retail_pct)}%</span>` : '')
+        + ` <span style="color:${C.margin}">融資 ${fmtInt(row.margin_balance)} 張</span>`;
+      break; }
+  }
+}
+
+// ---------------------------------------------------------- 啟動
+renderList();
+if(PAYLOAD.stocks.length) show(PAYLOAD.stocks[0].stock_id);
+document.getElementById('funnel').innerHTML = PAYLOAD.funnel ? PAYLOAD.funnel.map(f=>`${f[0]} <b>${f[1]}</b>`).join(' · ') : '';
+</script>
+</body>
+</html>

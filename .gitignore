@@ -3,6 +3,7 @@ market.duckdb
 market.duckdb.wal
 raw/
 logs/
+report/
 
 # ---- Python 環境與快取 ----
 .venv/
