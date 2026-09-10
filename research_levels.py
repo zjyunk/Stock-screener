@@ -78,7 +78,9 @@ def main():
     lookback = levels.LOOKBACK_DAYS
     for stock_id, g in panel.groupby("stock_id", sort=False):
         g = g.reset_index(drop=True)
-        rows = g[["high", "low", "close", "volume"]].to_dict("records")
+        rows = g[["trade_date", "high", "low", "close", "volume"]].to_dict("records")
+        for r in rows:
+            r["trade_date"] = str(r["trade_date"])[:10]
         for i in range(lookback, len(g), args.step):
             if not g.at[i, "in_universe"] or pd.isna(g.at[i, "ret"]) or pd.isna(g.at[i, "bench"]):
                 continue
@@ -99,6 +101,22 @@ def main():
             broke = any(prev_close <= c["price"] < close for c in prev_lv["resistance"])
             lost = any(prev_close >= c["price"] > close for c in prev_lv["support"])
 
+            # 趨勢線：用「昨天以前」的資料畫線，延伸一天到今天，看今天收盤跟線的關係
+            prev_win = rows[i - lookback: i]
+            tl_s = levels.trend_line(prev_win, "support")
+            tl_r = levels.trend_line(prev_win, "resistance")
+
+            def extend(tl):
+                if not tl:
+                    return None
+                return tl["value_today"] + tl["slope_pct"] / 100 * prev_win[-1]["close"]
+
+            ts_today, tr_today = extend(tl_s), extend(tl_r)
+            near_tl_sup = ts_today is not None and 0 < (close - ts_today) / ts_today <= NEAR_PCT
+            near_tl_res = tr_today is not None and 0 < (tr_today - close) / close <= NEAR_PCT
+            broke_tl_res = tr_today is not None and prev_close <= tr_today < close
+            lost_tl_sup = ts_today is not None and prev_close >= ts_today > close
+
             records.append(
                 {
                     "trade_date": g.at[i, "trade_date"], "stock_id": stock_id,
@@ -107,6 +125,11 @@ def main():
                     "strong_sup": strong_sup, "strong_res": strong_res,
                     "broke_res": broke, "lost_sup": lost,
                     "n_sup": len(sup), "n_res": len(res),
+                    "has_tl_sup": ts_today is not None, "has_tl_res": tr_today is not None,
+                    "tl_sup_rising": bool(tl_s and tl_s["slope_pct"] > 0.05),
+                    "tl_res_falling": bool(tl_r and tl_r["slope_pct"] < -0.05),
+                    "near_tl_sup": near_tl_sup, "near_tl_res": near_tl_res,
+                    "broke_tl_res": broke_tl_res, "lost_tl_sup": lost_tl_sup,
                 }
             )
 
@@ -130,6 +153,21 @@ def main():
     ]:
         print(f"{label:<30}{fmt(stats(df, m))}")
 
+    print("\n--- 趨勢線（用前一天以前的資料畫線、延伸到今天）---")
+    print(f"{'情境':<30}{'n / 超額 / t值':>24}")
+    print("-" * 56)
+    for label, m in [
+        ("有支撐趨勢線", df["has_tl_sup"]),
+        ("　└ 且是上升的", df["tl_sup_rising"]),
+        ("貼近支撐趨勢線（上方 2% 內）", df["near_tl_sup"]),
+        ("剛跌破支撐趨勢線", df["lost_tl_sup"]),
+        ("有壓力趨勢線", df["has_tl_res"]),
+        ("　└ 且是下降的", df["tl_res_falling"]),
+        ("貼近壓力趨勢線（下方 2% 內）", df["near_tl_res"]),
+        ("剛突破壓力趨勢線", df["broke_tl_res"]),
+    ]:
+        print(f"{label:<30}{fmt(stats(df, m))}")
+
     print("\n--- 樣本外驗證 ---")
     ins, oos = df["trade_date"] < SPLIT, df["trade_date"] >= SPLIT
     print(f"{'情境':<30}{'樣本內':>24}{'樣本外':>24}  一致")
@@ -139,6 +177,10 @@ def main():
         ("貼近壓力", df["near_res"]),
         ("剛突破壓力", df["broke_res"]),
         ("上方沒有壓力", df["n_res"] == 0),
+        ("貼近支撐趨勢線", df["near_tl_sup"]),
+        ("貼近壓力趨勢線", df["near_tl_res"]),
+        ("剛突破壓力趨勢線", df["broke_tl_res"]),
+        ("剛跌破支撐趨勢線", df["lost_tl_sup"]),
     ]:
         a, b = stats(df, m & ins), stats(df, m & oos)
         same = "—"

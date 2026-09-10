@@ -107,7 +107,7 @@ def print_levels(con, trade_date, rows):
     if rows.empty:
         return
     print("\n支撐壓力（還原價；量 = 成交量密集區、高/低 = 前高前低）：")
-    print("  實證：貼近壓力後續較差(-0.52%)、跌破支撐更差(-0.74%)；「貼近支撐會反彈」不成立")
+    print("  實證：貼近壓力後續較差(-0.52%)、跌破支撐更差(-0.74%)；「貼近支撐會反彈」不成立；趨勢線無預測力")
     for _, r in rows.iterrows():
         series = report.stock_series(con, r["stock_id"], trade_date)
         lv = levels.find_levels(series)
@@ -117,7 +117,7 @@ def print_levels(con, trade_date, rows):
         ts = levels.trend_line(series, "support")
         tr = levels.trend_line(series, "resistance")
         if ts or tr:
-            print(f"  {'':<6} {'':<8} {'趨勢線':>14}  "
+            print(f"  {'':<6} {'':<8} {'趨勢線(參考)':>14}  "
                   f"{levels.describe_trend(ts)} ｜ {levels.describe_trend(tr)}")
         prev = series[-2]["close"] if len(series) >= 2 else None
         for w in levels.warnings_for(lv, prev):

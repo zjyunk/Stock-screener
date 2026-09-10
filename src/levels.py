@@ -201,6 +201,11 @@ def trend_line(rows, kind="support", window=SWING_WINDOW):
 
     候選線很多（任兩點都能連），挑法：先淘汰被違反的，再取「觸碰次數最多、
     其次是最近期」的那條。回傳 None 代表找不到有效的線。
+
+    ⚠ 三年逐日檢定（research_levels.py）：貼近／穿越趨勢線的八個情境全部不顯著，
+    樣本外方向全部翻轉。趨勢線沒有預測力，只保留做圖形對照。水平價位
+    （find_levels）則通過檢定。合理的解釋：水平價位對應真實的成交密集區
+    （很多人的成本在那裡），趨勢線是幾何作圖，斜線上一個月前的價位不是任何人的成本。
     """
     rows = [r for r in rows if r.get("close") and r.get("high") and r.get("low")]
     if len(rows) < 30:

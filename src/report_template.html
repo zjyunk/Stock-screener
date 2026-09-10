@@ -216,9 +216,9 @@ function show(id){
   };
   lvBox.innerHTML = `
     <div class="lv res"><h4>壓力（上方，由近到遠）</h4>${lvRows(LV.resistance,'res')}
-      <h4 style="margin-top:8px">壓力趨勢線</h4>${tlRow(TL.resistance)}</div>
+      <h4 style="margin-top:8px">壓力趨勢線 <span style="font-weight:400;letter-spacing:0;text-transform:none;color:var(--warn)">— 未通過檢定，僅供參考</span></h4>${tlRow(TL.resistance)}</div>
     <div class="lv sup"><h4>支撐（下方，由近到遠）</h4>${lvRows(LV.support,'sup')}
-      <h4 style="margin-top:8px">支撐趨勢線</h4>${tlRow(TL.support)}</div>`;
+      <h4 style="margin-top:8px">支撐趨勢線 <span style="font-weight:400;letter-spacing:0;text-transform:none;color:var(--warn)">— 未通過檢定，僅供參考</span></h4>${tlRow(TL.support)}</div>`;
   main.appendChild(lvBox);
 
   const S = s.series.filter(r => r.close!=null);
@@ -308,7 +308,7 @@ function show(id){
 
   const note = document.createElement('p'); note.className='note';
   note.innerHTML = `K 線／指標一律用還原價；成交量、法人買賣超、融資單位為張。集保大戶／散戶是週頻，只在可使用日（公布後的下一交易日）畫點，${chips.length} 週。<br>
-    支撐壓力 = 近 120 日的成交量密集區（量）與前高前低，相距 1.5% 內的合併；強度條是相對權重。趨勢線 = 連兩個以上波段低點（高點），之後沒被跌破（突破）、且延伸到今天在現價 12% 內。紅漲綠跌為台股慣例。融資只列數字不做判斷（三年實證顯示它與後續報酬呈正相關，與慣用判讀相反）。`;
+    支撐壓力 = 近 120 日的成交量密集區（量）與前高前低，相距 1.5% 內的合併；強度條是相對權重。趨勢線 = 連兩個以上波段低點（高點），之後沒被跌破（突破）、且延伸到今天在現價 12% 內——<b>三年逐日檢定沒有預測力</b>（八個情境皆不顯著、樣本外全部翻轉），留著只是方便對照圖形。水平價位則通過檢定：貼近壓力 -0.52%、跌破支撐 -0.74%。紅漲綠跌為台股慣例。融資只列數字不做判斷（三年實證顯示它與後續報酬呈正相關，與慣用判讀相反）。`;
   main.appendChild(note);
 }
 
