@@ -1,0 +1,5 @@
+# 換行符號規則：bash 腳本一定要 LF，Windows 批次檔一定要 CRLF，其他交給 git 自動判斷
+*       text=auto
+*.sh    text eol=lf
+*.bat   text eol=crlf
+*.py    text eol=lf

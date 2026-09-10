@@ -1,0 +1,13 @@
+# ---- 資料檔：可以從程式重建，而且很大，不進版控 ----
+market.duckdb
+market.duckdb.wal
+raw/
+logs/
+
+# ---- Python 環境與快取 ----
+.venv/
+__pycache__/
+*.pyc
+
+# ---- 輸出檔 ----
+*.csv
