@@ -60,6 +60,16 @@ main{overflow-y:auto;padding:14px 20px 40px}
 .chart{width:100%}
 
 .note{font-size:12px;color:var(--ink-faint);margin:10px 0 0;line-height:1.7}
+.levels{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 8px}
+.lv{background:var(--surface);border:1px solid var(--rule);border-radius:5px;padding:8px 12px;font-family:var(--mono);font-size:12px}
+.lv h4{margin:0 0 5px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);font-weight:600}
+.lv .row{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;padding:2px 0;align-items:center}
+.lv .price{font-weight:600;color:var(--ink)}
+.lv .bar{height:5px;background:var(--surface-2);border-radius:2px;overflow:hidden}
+.lv .bar i{display:block;height:100%}
+.lv.sup .bar i{background:var(--accent)} .lv.res .bar i{background:var(--warn)}
+.lv .src{color:var(--ink-faint);font-size:10.5px}
+.lv .none{color:var(--ink-faint)}
 .empty{padding:60px 20px;text-align:center;color:var(--ink-faint)}
 @media(max-width:800px){.app{grid-template-columns:1fr;grid-template-rows:auto auto minmax(0,1fr)}
   aside{max-height:220px;border-right:none;border-bottom:1px solid var(--rule)}}
@@ -129,7 +139,7 @@ function renderList(){
         <span class="sub">#${s.rank} · ${s.market} · 收 <b>${fmt(s.close)}</b>
           <span class="${chg>=0?'up':'down'}">${chg==null?'':(chg>=0?'+':'')+fmt(chg,1)+'%'}</span>
           · 外資 <b>${s.foreign_pattern||''}</b></span>`;
-      el.addEventListener('click', () => show(s.stock_id));
+      el.addEventListener('click', () => { history.replaceState(null, '', '#' + s.stock_id); show(s.stock_id); });
       listEl.appendChild(el);
     });
 }
@@ -186,6 +196,31 @@ function show(id){
     <span class="kv">外資持股 <b>${fmt(s.hold_pct)}%</b>${s.hold_chg_pp!=null?` (${s.hold_chg_pp>=0?'+':''}${fmt(s.hold_chg_pp)}pp)`:''}</span>`;
   main.appendChild(head);
 
+  // ---- 支撐壓力
+  const LV = s.levels || {support:[], resistance:[]};
+  const srcLabel = src => src.map(x => ({vp:'量', high:'前高', low:'前低'}[x]||x)).join('·');
+  const lvRows = (arr, cls) => arr.length ? arr.map(c => `
+      <div class="row"><span class="price">${fmt(c.price)}</span>
+        <span class="bar"><i style="width:${Math.round(c.strength*100)}%"></i></span>
+        <span class="${c.dist_pct>=0?'up':'down'}">${c.dist_pct>=0?'+':''}${fmt(c.dist_pct,1)}%</span>
+        <span class="src">${srcLabel(c.sources)}${c.vol_share>0.005?` ${fmt(c.vol_share*100,1)}%量`:''}</span></div>`).join('')
+    : '<div class="none">近 120 日內沒有明顯的價位</div>';
+  const lvBox = document.createElement('div'); lvBox.className='levels';
+  const TL = s.trend || {};
+  const tlRow = tl => {
+    if(!tl) return '<div class="none">近期沒有被守住的趨勢線</div>';
+    const dir = tl.slope_pct > 0.05 ? '上升' : tl.slope_pct < -0.05 ? '下降' : '水平';
+    return `<div class="row"><span class="price">${fmt(tl.value_today)}</span>
+      <span class="src">${dir}趨勢線 · ${tl.start.slice(5)} → ${tl.end.slice(5)} · 觸 ${tl.touches} 次 · 最近 ${tl.last_touch.slice(5)}</span>
+      <span class="${tl.dist_pct>=0?'up':'down'}">${tl.dist_pct>=0?'+':''}${fmt(tl.dist_pct,1)}%</span><span></span></div>`;
+  };
+  lvBox.innerHTML = `
+    <div class="lv res"><h4>壓力（上方，由近到遠）</h4>${lvRows(LV.resistance,'res')}
+      <h4 style="margin-top:8px">壓力趨勢線</h4>${tlRow(TL.resistance)}</div>
+    <div class="lv sup"><h4>支撐（下方，由近到遠）</h4>${lvRows(LV.support,'sup')}
+      <h4 style="margin-top:8px">支撐趨勢線</h4>${tlRow(TL.support)}</div>`;
+  main.appendChild(lvBox);
+
   const S = s.series.filter(r => r.close!=null);
   const T = r => r.trade_date;
   // 每個交易日都要佔一格：各窗格的連動是用「第幾根」對齊的，
@@ -199,6 +234,17 @@ function show(id){
   candle.setData(S.map(r => ({time:T(r), open:r.open, high:r.high, low:r.low, close:r.close})));
   const ma = p1.chart.addLineSeries({ color:C.ma, lineWidth:1.5, priceLineVisible:false, lastValueVisible:false });
   ma.setData(W(r=>r.ma));
+  LV.support.forEach((c,i) => candle.createPriceLine({ price:c.price, color:C.accent, lineWidth:1,
+    lineStyle:LWC.LineStyle.Dashed, axisLabelVisible:true, title:`S${i+1}` }));
+  LV.resistance.forEach((c,i) => candle.createPriceLine({ price:c.price, color:C.ma, lineWidth:1,
+    lineStyle:LWC.LineStyle.Dashed, axisLabelVisible:true, title:`R${i+1}` }));
+  // 趨勢線：兩個點的 LineSeries 就是一條直線段（起點 → 延伸到今天）
+  [['support', C.accent], ['resistance', C.ma]].forEach(([k, color]) => {
+    const tl = TL[k]; if(!tl) return;
+    const ls = p1.chart.addLineSeries({ color, lineWidth:2, lineStyle:LWC.LineStyle.Solid,
+      priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false });
+    ls.setData([{time:tl.start, value:tl.start_price}, {time:tl.last, value:tl.value_today}]);
+  });
   p1.primary = candle; p1.series = {candle, ma};
   S.forEach(r => p1.byTime.set(T(r), r.close));
 
@@ -262,7 +308,7 @@ function show(id){
 
   const note = document.createElement('p'); note.className='note';
   note.innerHTML = `K 線／指標一律用還原價；成交量、法人買賣超、融資單位為張。集保大戶／散戶是週頻，只在可使用日（公布後的下一交易日）畫點，${chips.length} 週。<br>
-    紅漲綠跌為台股慣例。融資只列數字不做判斷（三年實證顯示它與後續報酬呈正相關，與慣用判讀相反）。`;
+    支撐壓力 = 近 120 日的成交量密集區（量）與前高前低，相距 1.5% 內的合併；強度條是相對權重。趨勢線 = 連兩個以上波段低點（高點），之後沒被跌破（突破）、且延伸到今天在現價 12% 內。紅漲綠跌為台股慣例。融資只列數字不做判斷（三年實證顯示它與後續報酬呈正相關，與慣用判讀相反）。`;
   main.appendChild(note);
 }
 
@@ -322,7 +368,14 @@ function updateLegend(p, key, s){
 
 // ---------------------------------------------------------- 啟動
 renderList();
-if(PAYLOAD.stocks.length) show(PAYLOAD.stocks[0].stock_id);
+// 網址帶 #代號 就直接開那一檔（例如 latest.html#2327），方便分享
+const wanted = location.hash.replace('#','');
+const first = PAYLOAD.stocks.find(x => x.stock_id===wanted) || PAYLOAD.stocks[0];
+if(first) show(first.stock_id);
+window.addEventListener('hashchange', () => {
+  const id = location.hash.replace('#','');
+  if(PAYLOAD.stocks.some(x => x.stock_id===id)) show(id);
+});
 document.getElementById('funnel').innerHTML = PAYLOAD.funnel ? PAYLOAD.funnel.map(f=>`${f[0]} <b>${f[1]}</b>`).join(' · ') : '';
 </script>
 </body>

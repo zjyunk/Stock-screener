@@ -20,7 +20,7 @@ import argparse
 import sys
 
 import config
-from src import db, screener
+from src import db, levels, report, screener
 
 PARAM_KEYS = (
     "SCREEN_MODE", "REVERSAL_REQUIRE_INST", "UNIVERSE_TOP_N", "UNIVERSE_LOOKBACK", "UNIVERSE_MIN_DAYS",
@@ -100,6 +100,28 @@ def print_reference(rows):
         )
     print("  外資持股 = 存量（籌碼在不在外資手上），跟買賣超的流量互補")
     print("  融資只列數字不做判斷：三年實證顯示融資與後續報酬呈正相關，與慣用判讀相反")
+
+
+def print_levels(con, trade_date, rows):
+    """入選股的支撐壓力（近 120 日成交量密集區 + 前高前低）。"""
+    if rows.empty:
+        return
+    print("\n支撐壓力（還原價；量 = 成交量密集區、高/低 = 前高前低）：")
+    print("  實證：貼近壓力後續較差(-0.52%)、跌破支撐更差(-0.74%)；「貼近支撐會反彈」不成立")
+    for _, r in rows.iterrows():
+        series = report.stock_series(con, r["stock_id"], trade_date)
+        lv = levels.find_levels(series)
+        digits = 2 if (lv.get("current") or 0) < 500 else 0
+        print(f"  {r['stock_id']:<6} {str(r.get('name') or '')[:8]:<8} "
+              f"現價 {num(lv.get('current'), digits):>9}  {levels.describe(lv, digits)}")
+        ts = levels.trend_line(series, "support")
+        tr = levels.trend_line(series, "resistance")
+        if ts or tr:
+            print(f"  {'':<6} {'':<8} {'趨勢線':>14}  "
+                  f"{levels.describe_trend(ts)} ｜ {levels.describe_trend(tr)}")
+        prev = series[-2]["close"] if len(series) >= 2 else None
+        for w in levels.warnings_for(lv, prev):
+            print(f"  {'':<6} {'':<8} {'⚠':>14}  {w}")
 
 
 def print_reasons(rows):
@@ -185,6 +207,7 @@ def main():
         if args.all:
             print("\n（* 為入選）")
         print_reference(selected if not selected.empty else shown)
+        print_levels(con, trade_date, selected if not selected.empty else shown)
         print_reasons(result)
 
     weeks = result["whale_weeks"].max() if "whale_weeks" in result.columns else 0

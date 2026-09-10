@@ -72,7 +72,7 @@ def load_panel(con, params, start=None, end=None, warmup_days=140):
             WHERE trade_date < ? ORDER BY trade_date DESC LIMIT ?
         )
         SELECT a.trade_date, a.stock_id, a.market,
-               a.open, a.high, a.low, a.close, a.turnover
+               a.open, a.high, a.low, a.close, a.volume, a.turnover
         FROM v_adjusted_price a
         WHERE a.stock_id IN (SELECT unnest(?))
           AND (a.trade_date >= ? OR a.trade_date IN (SELECT trade_date FROM warm))

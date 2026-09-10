@@ -10,7 +10,7 @@ from datetime import date
 
 import pandas as pd
 
-from . import indicators
+from . import indicators, levels
 
 DISPLAY_DAYS = 120       # 畫面上顯示幾個交易日
 WARMUP_DAYS = 80         # 指標暖身，多抓這麼多天再切掉
@@ -132,6 +132,11 @@ def build_payload(con, result, trade_date, params, stock_ids=None):
                 "retail_pct": _clean(getattr(row, "retail_pct", None)),
                 "series": series,
                 "chips": chip_series(con, row.stock_id, trade_date),
+                "levels": levels.find_levels(series),
+                "trend": {
+                    "support": levels.trend_line(series, "support"),
+                    "resistance": levels.trend_line(series, "resistance"),
+                },
             }
         )
 
