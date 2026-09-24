@@ -27,7 +27,7 @@ def write(root: Path, source: str, date_str: str, text: str) -> Path:
     with gzip.open(tmp, "wt", encoding="utf-8") as fh:
         fh.write(text)
     tmp.replace(path)
-    return path
+    return path # return回去給twse/tpex.py
 
 
 def read(root: Path, source: str, date_str: str) -> str:
@@ -41,6 +41,8 @@ def list_dates(root: Path, source: str):
     if not base.exists():
         return []
     dates = []
+    # rglob 的 r 是 recursive（遞迴）
+    # 因為檔案放在 raw/<source>/<年>/ 底下，多了一層年份資料夾，所以要用遞迴搜尋
     for path in base.rglob(f"{source}-*.json.gz"):
         dates.append(path.stem.replace(f"{source}-", "").replace(".json", ""))
     return sorted(dates)

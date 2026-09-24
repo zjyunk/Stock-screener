@@ -1,13 +1,12 @@
 """限速 HTTP client。
 
-交易所端點沒有公布速率上限，但實測請求太密會拿到 429 或被暫時鎖 IP。
+交易所端點沒有公布速率上限，但實測請求太密會拿到 429(Too Many Requests) 或被暫時鎖 IP。
 這裡強制每個 host 之間最小間隔 + 失敗指數退避，並在退避時加抖動避免同步重試。
 """
 
 import logging
 import random
 import time
-
 import requests
 
 log = logging.getLogger(__name__)
@@ -46,6 +45,8 @@ class RateLimitedClient:
         for attempt in range(self.max_retries):
             self._throttle()
             try:
+                # s.request() 是 Session 的底層方法，s.get() 和 s.post() 都是呼叫它的捷徑：
+                # 差別只是 s.request() 要自己指定方法名稱
                 resp = self.session.request(
                     method, url, params=params, data=data, timeout=self.timeout
                 )
@@ -67,7 +68,7 @@ class RateLimitedClient:
                 # 變成 "﻿資料日期"，欄位取不到值而且不會報錯。
                 # 對沒有 BOM 的回應（兩所的 JSON）行為與 utf-8 完全相同。
                 resp.encoding = "utf-8-sig"
-                return resp.text
+                return resp.text # 回傳response text
 
             except requests.RequestException as exc:
                 self._last_request = time.monotonic()

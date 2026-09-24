@@ -224,16 +224,19 @@ def load_foreign_holding(con, rows):
 def load_margin(con, rows):
     return _upsert(con, "margin_balance", rows, ["trade_date", "stock_id"])
 
-
+# 後載入的（最新的）覆蓋舊的
 def load_security_master(con, rows):
     if not rows:
         return 0
     import pandas as pd
 
     frame = pd.DataFrame(rows)
+    # 把 frame 註冊成名為 _sm 的虛擬表，之後 SQL 裡出現 _sm，就是指 frame 這個 DataFrame
     con.register("_sm", frame)
+    # 先刪除同代號的列
     con.execute("DELETE FROM security_master t WHERE EXISTS (SELECT 1 FROM _sm s WHERE t.stock_id = s.stock_id)")
     cols = list(frame.columns)
+    # 再插入
     con.execute(f"INSERT INTO security_master ({', '.join(cols)}) SELECT {', '.join(cols)} FROM _sm")
     con.unregister("_sm")
     return len(frame)

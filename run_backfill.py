@@ -49,7 +49,7 @@ def parse_date(text):
     return datetime.strptime(text, "%Y-%m-%d").date()
 
 
-# --------------------------------------------------------------- 抓取階段
+# 抓取階段
 def fetch_all(start, end):
     twse_client = RateLimitedClient(
         config.TWSE_MIN_INTERVAL, config.USER_AGENT, config.HTTP_TIMEOUT, config.MAX_RETRIES
@@ -97,23 +97,29 @@ def fetch_all(start, end):
             )
 
     # 除權息與基本資料一次抓完（區間查詢，不需逐日）
+    # fetch_exright(twse.py)不寫檔只回傳文字
     log.info("抓除權息與基本資料…")
     try:
         chunks = []
         cursor = start
+        # 不合併為一層，如果合併邏輯有錯，或交易所某一段的欄位格式不一樣，原始資料就已經被改掉，沒辦法從頭重新解析
         while cursor <= end:
             chunk_end = min(cursor + timedelta(days=180), end)
+            # fetch_exright 回傳的是 JSON 字串（client.get_text 的 resp.text）
+            # chunks 是「字串的 list」
             chunks.append(
                 twse.fetch_exright(
                     twse_client, cursor.strftime("%Y%m%d"), chunk_end.strftime("%Y%m%d")
                 )
             )
             cursor = chunk_end + timedelta(days=1)
+        # raw_store.write 只收一個字串，所以先 json.dumps(chunks)，把整個 list 變成一個字串
         raw_store.write(config.RAW_DIR, "twse_exright", end.strftime("%Y%m%d"),
-                        json.dumps(chunks, ensure_ascii=False))
+                        json.dumps(chunks, ensure_ascii=False)) 
     except Exception as exc:  # noqa: BLE001
         log.error("除權息抓取失敗：%s", exc)
 
+    # 公司基本資料
     for source, fn, client in (
         ("twse_company", twse.fetch_company_master, twse_client),
         ("tpex_company", tpex.fetch_company_master, tpex_client),
@@ -132,11 +138,13 @@ def load_all(start, end):
     con = db.connect(config.DB_PATH)
     log.info("從 raw 載入 DuckDB：%s", config.DB_PATH)
 
-    # 基本資料先進，才有 shares_outstanding 的容身處
+    # 基本資料先進，才有 shares_outstanding (流通在外股數，公司總共發行、目前在市場上的普通股股數) 的容身處
     for source, parser in (("twse_company", twse.parse_company_master),
                            ("tpex_company", tpex.parse_company_master)):
+        # 在不同日子跑過好幾次 backfill，迴圈會由舊到新全部載入
         for date_str in raw_store.list_dates(config.RAW_DIR, source):
             rows = parser(raw_store.read(config.RAW_DIR, source, date_str))
+            # load_security_master 的做法是先刪除同代號的列，再插入
             log.info("%s：%d 檔", source, db.load_security_master(con, rows))
 
     prices = insti = qfii = margin = 0
@@ -181,6 +189,7 @@ def load_all(start, end):
 
     # 除權息
     for date_str in raw_store.list_dates(config.RAW_DIR, "twse_exright"):
+        #  先用 json.loads 還原成字串 list，再把每個字串交給 parse_exright 做第二次 json.loads
         chunks = json.loads(raw_store.read(config.RAW_DIR, "twse_exright", date_str))
         rows = []
         for chunk in chunks:

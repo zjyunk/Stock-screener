@@ -1,12 +1,10 @@
-"""上市（TWSE）資料來源。
-
+"""
+上市（TWSE）資料來源
 端點皆為 2026-09 實測可用。舊的 /exchangeReport/ 與 /fund/ 路徑目前仍會轉到
 新的 /rwd/zh/ 路徑，但直接用新路徑比較保險。
-
 抓「單日全市場」而不是「單股全期間」：1,800 檔逐檔抓會被擋，
 MI_INDEX 一天一個請求就拿到全市場。
 """
-
 import json
 import logging
 
@@ -14,15 +12,18 @@ from . import clean, raw_store
 
 log = logging.getLogger(__name__)
 
-DAILY_QUOTE_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX"
-INSTI_URL = "https://www.twse.com.tw/rwd/zh/fund/T86"
-EXRIGHT_URL = "https://www.twse.com.tw/rwd/zh/exRight/TWT49U"
-COMPANY_URL = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
-QFII_URL = "https://www.twse.com.tw/rwd/zh/fund/MI_QFIIS"
-MARGIN_URL = "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN"
+DAILY_QUOTE_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX" # 漲跌行情
+INSTI_URL = "https://www.twse.com.tw/rwd/zh/fund/T86"                    # 法人
+EXRIGHT_URL = "https://www.twse.com.tw/rwd/zh/exRight/TWT49U"            # 除權息
+COMPANY_URL = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"       # 公司基本資料
+QFII_URL = "https://www.twse.com.tw/rwd/zh/fund/MI_QFIIS"                # 合格境外機構投資者
+MARGIN_URL = "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN"     # 融資
 
-# ALLBUT0999 = 全部但不含權證、牛熊證、可展延牛熊證
-# 用 ALL 的話單日回應 5MB / 33,000 列（含三萬檔權證），ALLBUT0999 只有 218KB / 1,300 列
+"""
+ALLBUT0999 = 全部但不含權證、牛熊證、可展延牛熊證
+0999是證交所在 MI_INDEX 這支 API 裡給「認購(售)權證」用的類別代碼
+用 ALL 的話單日回應 5MB / 33,000 列（含三萬檔權證），ALLBUT0999 只有 218KB / 1,300 列
+"""
 QUOTE_TYPE = "ALLBUT0999"
 
 SOURCE_QUOTE = "twse_quote"
@@ -30,11 +31,11 @@ SOURCE_INSTI = "twse_insti"
 SOURCE_QFII = "twse_qfii"
 SOURCE_MARGIN = "twse_margin"
 
-
-# ------------------------------------------------------------------ 抓取
+"""抓取"""
 def fetch_daily_quote(client, raw_dir, date_str, skip_existing=True):
     if skip_existing and raw_store.exists(raw_dir, SOURCE_QUOTE, date_str):
         return False
+    # BOM已經被http_client.py的RateLimitedClient的_request處理過了，這裡不用再處理
     text = client.get_text(
         DAILY_QUOTE_URL,
         params={"date": date_str, "type": QUOTE_TYPE, "response": "json"},
@@ -59,10 +60,11 @@ def fetch_insti(client, raw_dir, date_str, skip_existing=True):
 
 
 def fetch_qfii(client, raw_dir, date_str, skip_existing=True):
-    """外資及陸資持股統計。這是「存量」——籌碼現在在不在外資手上。
-
-    跟 T86 的買賣超（流量）不同：買賣超說今天買了多少，持股比率說現在握著多少。
-    要看「籌碼流回外資」看的是這條線的趨勢，不是集保（集保分不出持有人身分）。
+    """
+    外資及陸資持股統計:
+    這是「存量」——籌碼現在在不在外資手上
+    跟 T86 的買賣超（流量）不同：買賣超說今天買了多少，持股比率說現在握著多少
+    要看「籌碼流回外資」看的是這條線的趨勢，不是集保（集保分不出持有人身分）
     """
     if skip_existing and raw_store.exists(raw_dir, SOURCE_QFII, date_str):
         return False
@@ -76,7 +78,7 @@ def fetch_qfii(client, raw_dir, date_str, skip_existing=True):
 
 
 def fetch_margin(client, raw_dir, date_str, skip_existing=True):
-    """融資融券餘額。融資是散戶槓桿的主要工具，可當散戶動向的代理指標。"""
+    """融資融券餘額: 融資是散戶槓桿的主要工具，可當散戶動向的代理指標"""
     if skip_existing and raw_store.exists(raw_dir, SOURCE_MARGIN, date_str):
         return False
     text = client.get_text(
@@ -89,7 +91,7 @@ def fetch_margin(client, raw_dir, date_str, skip_existing=True):
 
 
 def fetch_exright(client, start_date, end_date):
-    """除權息計算結果表。日期為 YYYYMMDD，區間查詢。"""
+    """除權息計算結果表: 日期為 YYYYMMDD，區間查詢"""
     return client.get_text(
         EXRIGHT_URL,
         params={"startDate": start_date, "endDate": end_date, "response": "json"},
@@ -101,14 +103,15 @@ def fetch_company_master(client):
 
 
 def _has_data(text):
-    """交易所對「當天還沒公布」會回 200 + stat 說明，不是錯誤。
-
-    這種回應不能落地成 raw 檔：run_backfill 的 skip_existing 看到檔案存在就跳過，
+    """
+    交易所對「當天還沒公布」會回 200 + stat 說明，不是error
+    這種回應不能落地成 raw 檔：run_backfill 的 skip_existing 看到檔案存在就跳過
     那一天就會永久缺資料。收盤後太早跑很容易踩到 —— 外資持股與融資融券
-    公布得比行情晚。
+    公布得比行情晚
+    _has_data 保護的是「逐日檔案 + 存在就跳過」
     """
     try:
-        payload = json.loads(text)
+        payload = json.loads(text) # 使用 json.loads() 將字串轉換成 Python 字典
     except (ValueError, TypeError):
         return False
     if isinstance(payload, list):
@@ -121,21 +124,23 @@ def _has_data(text):
     return any(t.get("data") for t in (payload.get("tables") or []))
 
 
-# ------------------------------------------------------------------ 解析
+# 解析
 def _find_table(payload, keyword):
-    """MI_INDEX 一次回傳 10 張表（指數、大盤統計、收盤行情…），依標題取。
-
+    """
+    MI_INDEX 一次回傳 n 張表（指數、大盤統計、收盤行情…），依標題取
     用關鍵字比對而不是寫死索引，因為表的張數會隨日期變動
-    （早期沒有「臺灣指數公司」那幾張）。
+    （早期沒有「臺灣指數公司」）
     """
     for table in payload.get("tables", []):
+        # 從 dict 取值，如果 key 不存在就回傳預設值 ""，避免 KeyError
+        # str(...) 將值轉換成字串，避免非字串類型導致的錯誤
         if keyword in str(table.get("title", "")):
             return table
     return None
 
-
+"""去website F12看Network的response text"""
 def parse_daily_quote(text, date_iso):
-    """回傳 list[dict]，只保留 4 碼普通股。"""
+    """回傳 list[dict]，只保留 4 碼普通股"""
     payload = json.loads(text)
     if payload.get("stat") != "OK":
         return []
@@ -172,9 +177,9 @@ def parse_daily_quote(text, date_iso):
 
 
 def parse_insti(text, date_iso):
-    """三大法人買賣超。
-
-    欄位順序（T86，2026-09 實測）：
+    """
+    三大法人買賣超:
+    欄位順序(T86，2026-09 實測):
       0 證券代號 / 1 證券名稱
       2-4   外陸資買進/賣出/買賣超（不含外資自營商）  <- 用這個，比總外資乾淨
       5-7   外資自營商
@@ -208,7 +213,8 @@ def parse_insti(text, date_iso):
 
 
 def parse_exright(text):
-    """除權息。回傳 list[dict]，用來建還原因子。"""
+    """除權息，回傳 list[dict]"""
+    # json.loads(chunk) 解析成 dict
     payload = json.loads(text)
     if payload.get("stat") != "OK":
         return []
@@ -238,11 +244,11 @@ def parse_exright(text):
 
 
 def parse_company_master(text):
-    """上市沒有直接給發行股數，用 實收資本額 ÷ 每股面額 推算。
-
-    台積電實測：259,323,700,670 / 10 = 25,932,370,067 股，
-    對實際流通 25,930,380,458 股誤差 0.008%，當法人買超佔比的分母綽綽有餘。
-    面額非台幣或無面額者回 None，選股時該股的佔比條件會直接不通過。
+    """
+    上市沒有直接給發行股數，用 實收資本額 ÷ 每股面額 推算
+    台積電實測：259,323,700,670 / 10 = 25,932,370,067 股
+    對實際流通 25,930,380,458 股誤差 0.008%，當法人買超佔比的分母綽綽有餘
+    面額非台幣或無面額者回 None，選股時該股的佔比條件會直接不通過
     """
     rows = []
     for item in json.loads(text):
@@ -267,7 +273,8 @@ def parse_company_master(text):
 
 
 def parse_qfii(text, date_iso):
-    """MI_QFIIS 欄位（2026-09 實測）：
+    """
+    MI_QFIIS 欄位(2026-09 實測):
       0 證券代號 / 1 證券名稱 / 2 國際證券編碼 / 3 發行股數
       4 尚可投資股數 / 5 全體外資及陸資持有股數
       6 尚可投資比率 / 7 全體外資及陸資持股比率  ← 主要欄位
@@ -298,12 +305,13 @@ def parse_qfii(text, date_iso):
 
 
 def parse_margin(text, date_iso):
-    """MI_MARGN 的第二張表「融資融券彙總」，欄位：
+    """
+    MI_MARGN 的第二張表「融資融券彙總」，欄位：
       0 代號 / 1 名稱
       融資 2 買進 3 賣出 4 現金償還 5 前日餘額 6 今日餘額 7 限額
       融券 8 買進 9 賣出 10 現券償還 11 前日餘額 12 今日餘額 13 限額
       14 資券互抵 / 15 註記
-    餘額單位是「張」。
+    餘額單位是「張」
     """
     payload = json.loads(text)
     if payload.get("stat") != "OK":
