@@ -73,7 +73,7 @@ pip install -r requirements.txt
 兩支腳本內容相同，都會自己 `cd` 到專案目錄並用 venv 的直譯器。
 選股清單另存一份到 `logs/screener_latest.txt`，個股頁報表在 `report/latest.html`（用瀏覽器開）。
 
-⚠ **Git Bash 要加 `./`**：打 `daily.bat` 或 `daily.sh` 會說找不到，
+**Git Bash 要加 `./`**：打 `daily.bat` 或 `daily.sh` 會說找不到，
 因為 bash 刻意不在目前目錄找可執行檔。`./daily.bat` 也能跑（會轉給 cmd）。
 
 外資持股與融資融券的公布時間比行情晚，15:30 跑通常還抓不到當天的；
@@ -86,7 +86,7 @@ pip install -r requirements.txt
 那一週的快照會一直掛在 API 上直到下週六被換掉，所以每天跑等於把
 「週六單次機會」變成「七天補救窗口」。已經在庫的那一週會直接跳過不重寫。
 
-⚠ 漏掉整整一週就<b>再也拿不回來</b>，而大戶/散戶的「4 週變化」需要 5 週快照才算得出來。
+漏掉整整一週就<b>再也拿不回來</b>，而大戶/散戶的「4 週變化」需要 5 週快照才算得出來。
 
 ## 掛 Windows 工作排程器
 
