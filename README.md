@@ -6,8 +6,6 @@
 打底反轉（DIF 零軸下回升、柱狀體已翻紅、K>D）
 附三年回測驗證
 
-規格書：https://claude.ai/code/artifact/46d0a280-bd61-46a7-aab8-a4c9ed41d737
-
 目前完成 **Phase 0（資料管線）**、**Phase 1（指標與選股 CLI）**、**Phase 2（回測驗證）**、**Phase 3（個股頁報表 + 支撐壓力）**。
 
 > ## Phase 2 結論：通過驗證
